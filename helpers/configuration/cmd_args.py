@@ -2401,15 +2401,26 @@ def parse_cmdline_args(input_args=None, exit_on_error: bool = False):
     parser = get_argument_parser()
     args = None
     if input_args is not None:
+        logger.info(f"Parsing {len(input_args)} command line arguments")
         for key_val in input_args:
             print_on_main_thread(f"{key_val}")
+        logger.info(f"All arguments: {input_args}")
         try:
             args = parser.parse_args(input_args)
-        except:
+        except SystemExit as e:
+            logger.error(f"Argument parsing failed with SystemExit: {e}")
             logger.error(f"Could not parse input: {input_args}")
+            if exit_on_error:
+                raise
+            return None
+        except Exception as e:
+            logger.error(f"Could not parse input: {input_args}")
+            logger.error(f"Exception details: {e}")
             import traceback
-
             logger.error(traceback.format_exc())
+            if exit_on_error:
+                raise
+            return None
     else:
         args = parser.parse_args()
 
