@@ -1783,6 +1783,12 @@ def get_argument_parser():
         help="The name of the project for WandB or Tensorboard.",
     )
     parser.add_argument(
+        "--train_id",
+        type=str,
+        default=None,
+        help="Unique identifier for the training session. Used for progress reporting and tracking.",
+    )
+    parser.add_argument(
         "--tracker_image_layout",
         choices=["gallery", "table"],
         default="gallery",
