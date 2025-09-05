@@ -42,6 +42,7 @@ from helpers.training.min_snr_gamma import compute_snr
 from helpers.training.peft_init import init_lokr_network_with_perturbed_normal
 from accelerate.logging import get_logger
 from helpers.models.all import model_families
+from helpers.training.progress_interceptor import ProgressInterceptor
 
 logger = get_logger(
     "SimpleTuner", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
@@ -357,6 +358,23 @@ class Trainer:
         self.grad_norm = None
         self.extra_lr_scheduler_kwargs = {}
         StateTracker.set_global_step(self.state["global_step"])
+        self.progress_interceptor = None
+        train_id = None
+        
+        # First check config.json for train_id parameter
+        if hasattr(self.config, 'train_id') and self.config.train_id is not None:
+            train_id = self.config.train_id
+            logger.info(f"Using train_id from config: {train_id}")
+        # Fall back to environment variable if not in config or is null
+        elif os.getenv("TRAIN_ID"):
+            train_id = os.getenv("TRAIN_ID")
+            logger.info(f"Using train_id from environment variable: {train_id}")
+        
+        if train_id:
+            self.progress_interceptor = ProgressInterceptor(train_id)
+            logger.info(f"ProgressInterceptor initialized for train_id: {train_id}")
+        else:
+            logger.info("ProgressInterceptor not initialized - no train_id provided in config or environment")
         self.config.use_deepspeed_optimizer, self.config.use_deepspeed_scheduler = (
             prepare_model_for_deepspeed(self.accelerator, self.config)
         )
@@ -2371,6 +2389,13 @@ class Trainer:
                     self.state["global_step"] += 1
                     current_epoch_step += 1
                     StateTracker.set_global_step(self.state["global_step"])
+                    
+                    # Update progress through ProgressInterceptor
+                    if self.progress_interceptor is not None:
+                        self.progress_interceptor.send_training_progress(
+                            self.state["global_step"], 
+                            self.config.max_train_steps
+                        )
 
                     ema_decay_value = "None (EMA not in use)"
                     if self.config.use_ema:
@@ -2584,6 +2609,9 @@ class Trainer:
                         f"Training has completed."
                         f"\n -> global_step = {self.state['global_step']}, max_train_steps = {self.config.max_train_steps}, epoch = {epoch}, num_train_epochs = {self.config.num_train_epochs}",
                     )
+                    # Send completion progress
+                    if self.progress_interceptor is not None:
+                        self.progress_interceptor.send_completion_progress()
                     break
             if self.state["global_step"] >= self.config.max_train_steps or (
                 epoch > self.config.num_train_epochs
@@ -2592,6 +2620,9 @@ class Trainer:
                 logger.info(
                     f"Exiting training loop. Beginning model unwind at epoch {epoch}, step {self.state['global_step']}"
                 )
+                # Send completion progress
+                if self.progress_interceptor is not None:
+                    self.progress_interceptor.send_completion_progress()
                 break
 
         # Create the pipeline using the trained modules and save it.
